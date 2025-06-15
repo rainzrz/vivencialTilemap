@@ -5,6 +5,12 @@ project(PGCCHIB)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+# Define uma macro para suprimir avisos de segurança do MSVC (como fopen_s)
+# Isso deve ser definido ANTES de adicionar os executáveis para que se aplique.
+if(MSVC)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+endif()
+
 # Ativa o FetchContent
 include(FetchContent)
 
@@ -34,12 +40,15 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(stb_image)
 
-# Adiciona as pastas de cabeçalhos
+# Adiciona as pastas de cabeçalhos globais
+# target_include_directories é geralmente preferido para targets específicos.
+# Mas para diretórios de projeto que são usados por muitos targets, include_directories ainda é comum.
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/common)
 include_directories(${CMAKE_SOURCE_DIR}/common/M5-6)
-include_directories(${CMAKE_SOURCE_DIR}/include/glad)
-include_directories(${glm_SOURCE_DIR})
+# Glad e GLM são adicionados via FetchContent_MakeAvailable e target_include_directories.
+# include_directories(${CMAKE_SOURCE_DIR}/include/glad) # Redundante se target_include_directories for usado.
+# include_directories(${glm_SOURCE_DIR}) # Redundante se target_include_directories for usado.
 
 
 # Lista de exemplos/exercícios podem ser colocados aqui também
@@ -47,7 +56,13 @@ set(EXERCISES
     ExemplosMoodle/VivencialTilemap/programa
 )
 
-add_compile_options(-Wno-pragmas)
+# A linha add_compile_options(-Wno-pragmas) foi removida/comentada anteriormente.
+# Se você precisar de flags de warning específicas para GCC/Clang no futuro,
+# use um bloco condicional como:
+# if(NOT MSVC)
+#   add_compile_options(-Wno-pragmas)
+# endif()
+
 
 # Define as bibliotecas para cada sistema operacional
 if(WIN32)
@@ -70,15 +85,56 @@ if (NOT EXISTS ${GLAD_C_FILE})
     message(FATAL_ERROR "Arquivo glad.c não encontrado! Baixe a GLAD manualmente em https://glad.dav1d.de/ e coloque glad.h em include/glad/ e glad.c em common/")
 endif()
 
+# REMOVIDO: A seção file(COPY ...) que causava o erro na configuração
+# set(RUNTIME_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+# set(RESOURCE_FILES ...)
+# file(COPY ...)
+
 # Cria os executáveis
 foreach(EXERCISE ${EXERCISES})
     # Extrai o nome do arquivo sem o diretório para o executável
-    get_filename_component(EXE_NAME ${EXERCISE} NAME)                                                                                                                                       
-    
+    get_filename_component(EXE_NAME ${EXERCISE} NAME)                                      
+
     # Adiciona o executável usando o nome do arquivo como nome do executável
-    add_executable(${EXE_NAME} src/${EXERCISE}.cpp ${GLAD_C_FILE}) 
+    add_executable(${EXE_NAME} src/${EXERCISE}.cpp ${GLAD_C_FILE} ${GL_UTILS_C_FILE}) 
 
     # Configura as bibliotecas e include dirs para o executável
-    target_include_directories(${EXE_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include/glad ${glm_SOURCE_DIR} ${stb_image_SOURCE_DIR})
+    target_include_directories(${EXE_NAME} PRIVATE
+        ${CMAKE_SOURCE_DIR}/include/glad
+        ${glm_SOURCE_DIR}
+        ${stb_image_SOURCE_DIR}
+    )
+    # GLM é adicionado como um target, não apenas um include dir para libs.
     target_link_libraries(${EXE_NAME} glfw ${OPENGL_LIBS} glm::glm)
+
+    # --- NOVO: Seção para copiar arquivos de recursos após o build ---
+    # Define o diretório de destino para os arquivos de recursos
+    # Isso será avaliado corretamente para Debug, Release, etc.
+    # Coloquei aqui DENTRO do foreach para que seja associado a cada executável.
+    set(DEST_DIR "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+
+    # Lista de arquivos de recursos que precisam ser copiados para ESTE EXECUTÁVEL
+    set(RESOURCE_FILES_FOR_EXE
+        "${CMAKE_SOURCE_DIR}/src/ExemplosMoodle/VivencialTilemap/_geral_vs.glsl"
+        "${CMAKE_SOURCE_DIR}/src/ExemplosMoodle/VivencialTilemap/_geral_fs.glsl"
+        "${CMAKE_SOURCE_DIR}/src/ExemplosMoodle/VivencialTilemap/terrain.png"
+        "${CMAKE_SOURCE_DIR}/src/ExemplosMoodle/VivencialTilemap/terrain1.tmap"
+    )
+
+    # Para cada arquivo de recurso, adicione um comando personalizado para copiá-lo
+    # Este comando será executado APÓS a compilação do target 'programa'.
+    foreach(RES_FILE ${RESOURCE_FILES_FOR_EXE})
+        get_filename_component(FNAME ${RES_FILE} NAME) # Extrai apenas o nome do arquivo
+
+        add_custom_command(
+            TARGET ${EXE_NAME} # Associa este comando ao seu executável (e.g., 'programa')
+            POST_BUILD         # Executa após a compilação do target
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different # Comando para copiar
+                    "${RES_FILE}"
+                    "${DEST_DIR}/${FNAME}"
+            COMMENT "Copiando arquivo de recurso para ${EXE_NAME}: ${FNAME}"
+        )
+    endforeach()
+    # --- FIM da Seção de cópia de arquivos ---
+
 endforeach()

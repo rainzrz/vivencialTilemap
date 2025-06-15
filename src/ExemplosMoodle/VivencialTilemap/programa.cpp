@@ -94,12 +94,15 @@ int loadTexture(unsigned int &texture, const char *filename)
 			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
 		}
 		glGenerateMipmap(GL_TEXTURE_2D);
+		stbi_image_free(data);
+		return 1; // Retorna 1 para sucesso
 	}
 	else
 	{
 		std::cout << "Failed to load texture" << std::endl;
+		stbi_image_free(data); // É uma boa prática liberar mesmo se falhar, caso stbi_load retorne algo
+		return 0; // Retorna 0 para falha
 	}
-	stbi_image_free(data);
 }
 
 void SRD2SRU(double &mx, double &my, float &x, float &y) {
